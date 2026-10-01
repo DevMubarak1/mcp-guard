@@ -2,7 +2,7 @@
 
 **Security scanner for MCP servers** — audit capabilities, detect risks, generate security reports.
 
-![CI](https://github.com/yunaremaia/mcp-guard/actions/workflows/docker.yml/badge.svg) ![License](https://img.shields.io/endpoint?url=https://img.shields.io/licenses/MIT)
+![CI](https://github.com/yunaremaia/mcp-guard/actions/workflows/ci.yml/badge.svg) ![Docker](https://github.com/yunaremaia/mcp-guard/actions/workflows/docker.yml/badge.svg) ![License](https://img.shields.io/github/license/yunaremaia/mcp-guard) ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 
 ## Why
 
@@ -15,8 +15,18 @@ The MCP ecosystem exploded (67,000+ servers in 18 months), but security hasn't k
 
 ## Install
 
+`mcp-guard` is not published on PyPI. Install it directly from the repository:
+
 ```bash
-pip install mcp-guard
+pip install git+https://github.com/yunaremaia/mcp-guard.git
+```
+
+Requires Python 3.10 or newer.
+
+Alternatively, run it without installing via Docker:
+
+```bash
+docker run --rm -v "$PWD:/work" ghcr.io/yunaremaia/mcp-guard:latest scan /work/my-mcp-server
 ```
 
 ## Quick Start
@@ -132,7 +142,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install mcp-guard
+      - run: pip install git+https://github.com/yunaremaia/mcp-guard.git
       - run: mcp-guard scan ./mcp-server --format sarif --output results.sarif
       - uses: github/codeql-action/upload-sarif@v3
         with:
@@ -142,6 +152,15 @@ jobs:
 ## License
 
 MIT
+
+## Sponsoring / Treasury
+
+This project is MIT licensed and free to use. If you want to support its
+maintenance, you can sponsor on GitHub or contribute to the development
+treasury wallet on Solana:
+
+- GitHub Sponsors: https://github.com/sponsors/yunaremaia
+- Solana: [`Eeztv1nCYUt1fwGWpzKC948gaWfjejYCAuLtUMgzDWbW`](https://solana.com/solana-wallet?base=SOL&address=Eeztv1nCYUt1fwGWpzKC948gaWfjejYCAuLtUMgzDWbW)
 
 ## Trust boundary
 
