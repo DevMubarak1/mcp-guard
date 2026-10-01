@@ -2,7 +2,7 @@
 
 **Security scanner for MCP servers** — audit capabilities, detect risks, generate security reports.
 
-![CI](https://github.com/yunaremaia/mcp-guard/actions/workflows/ci.yml/badge.svg) ![Docker](https://github.com/yunaremaia/mcp-guard/actions/workflows/docker.yml/badge.svg) ![License](https://img.shields.io/github/license/yunaremaia/mcp-guard) ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
+![CI](https://github.com/yunaremaia/mcp-guard/actions/workflows/ci.yml/badge.svg) ![Docker](https://github.com/yunaremaia/mcp-guard/actions/workflows/docker.yml/badge.svg) ![License](https://img.shields.io/github/license/yunaremaia/mcp-guard) ![Python](https://img.shields.io/badge/python-3.10%2B-blue) ![Release](https://img.shields.io/github/v/release/yunaremaia/mcp-guard)
 
 ## Why
 
@@ -149,6 +149,17 @@ jobs:
           sarif_file: results.sarif
 ```
 
+If this tool is useful to you, a star helps other people find it.
+
+## Related tools
+
+- **[driftcheck](https://github.com/yunaremaia/driftcheck)** — detect version drift between docs and toolchain files
+- **[context-bridge](https://github.com/yunaremaia/context-bridge)** — persistent session memory for AI agents
+- **[mcp-reconcile](https://github.com/yunaremaia/mcp-reconcile)** — reconcile conflicting MCP server definitions
+- **[tool-call-retry](https://github.com/yunaremaia/tool-call-retry)** — retry failed tool calls with backoff
+
+Part of a family of focused, single-purpose developer tools — each one does one thing
+and does it well.
 ## License
 
 MIT
