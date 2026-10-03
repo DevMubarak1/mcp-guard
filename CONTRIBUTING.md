@@ -28,3 +28,11 @@ Guidelines:
     mypy --strict mcp_guard/
     pyright
     ruff check mcp_guard
+
+## Code of Conduct
+
+This project follows a [Code of Conduct](CODE_OF_CONDUCT.md). By participating, you agree to uphold it.
+
+## Security
+
+Please do not report security vulnerabilities through public issues. See [SECURITY.md](SECURITY.md).
