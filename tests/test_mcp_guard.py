@@ -151,6 +151,198 @@ class TestParser:
                 MCPParser.from_directory(tmpdir)
 
 
+class TestKeywordBoundaryMatching:
+    """Write/destructive keywords match whole words, not substrings (#84)."""
+
+    @staticmethod
+    def parse_tool(name: str, description: str) -> MCPCapability:
+        manifest = MCPParser.from_dict(
+            {"name": "srv", "tools": [{"name": name, "description": description}]}
+        )
+        return manifest.capabilities[0]
+
+    def test_read_only_names_no_longer_match_substring_keywords(self):
+        """The false positives reproduced in the issue stop matching."""
+        for name in ("get_address", "read_settings", "search_update_records"):
+            cap = self.parse_tool(name, "Return records")
+            assert cap.is_write is False, name
+
+    def test_get_clear_status_is_not_destructive(self):
+        """A leading read verb marks the capability read-only."""
+        cap = self.parse_tool("get_clear_status", "Return records")
+        assert cap.is_destructive is False
+        assert cap.is_write is False
+
+    def test_description_substring_words_do_not_match(self):
+        """'created'/'settings'/'input' no longer trip create/set/put."""
+        cap = self.parse_tool("list_records", "Return the list of created records")
+        assert cap.is_write is False
+
+        cap = self.parse_tool("read_config", "Manage the settings for this server")
+        assert cap.is_write is False
+
+        cap = self.parse_tool("query_status", "Read the input and report")
+        assert cap.is_write is False
+
+    def test_description_word_boundary_hits_still_match(self):
+        """Genuine keyword mentions in descriptions still classify."""
+        cap = self.parse_tool("apply_config", "Set the temperature")
+        assert cap.is_write is True
+
+        cap = self.parse_tool("cleanup", "Delete all records")
+        assert cap.is_destructive is True
+
+    def test_true_positive_names_still_match(self):
+        """Whole identifier segments keep matching their keywords."""
+        for name, write, destructive in (
+            ("delete_repo", False, True),
+            ("clear_cache", False, True),
+            ("create_user", True, False),
+            ("update_records", True, False),
+            ("add_user", True, False),
+            ("delete", False, True),
+        ):
+            cap = self.parse_tool(name, "Operate on data")
+            assert cap.is_write is write, name
+            assert cap.is_destructive is destructive, name
+
+    def test_camel_case_and_kebab_case_names_are_tokenized(self):
+        """camelCase and kebab-case identifiers split into the same tokens."""
+        cap = self.parse_tool("deleteFile", "Operate on data")
+        assert cap.is_destructive is True
+
+        cap = self.parse_tool("drop-table", "Operate on data")
+        assert cap.is_destructive is True
+
+    def test_read_verb_guard_does_not_suppress_description_matches(self):
+        """The guard only suppresses name matches; descriptions still count."""
+        cap = self.parse_tool("get_user", "Delete the user permanently")
+        assert cap.is_destructive is True
+
+        cap = self.parse_tool("get_user", "Get user by ID")
+        assert cap.is_destructive is False
+        assert cap.is_write is False
+
+    def test_capability_without_name_uses_description_only(self):
+        """A missing name degrades to description-only matching."""
+        manifest = MCPParser.from_dict(
+            {"name": "srv", "tools": [{"description": "Delete everything"}]}
+        )
+        assert manifest.capabilities[0].is_destructive is True
+
+    def test_name_tokens_split_identifiers(self):
+        """Tokenization covers snake, kebab, camel and single words."""
+        assert MCPParser._name_tokens("get_address") == ["get", "address"]
+        assert MCPParser._name_tokens("drop-in") == ["drop", "in"]
+        assert MCPParser._name_tokens("deleteFile") == ["delete", "file"]
+        assert MCPParser._name_tokens("delete") == ["delete"]
+
+    def test_conjunction_reenables_name_matching(self):
+        """A read verb + conjunction + keyword is a second operation."""
+        for name in ("get_and_delete_user", "list_and_remove_items", "fetch_or_drop_table"):
+            cap = self.parse_tool(name, "Operate on data")
+            assert cap.is_destructive is True, name
+
+    def test_conjunction_check_covers_every_hit(self):
+        """The conjunction rule runs for every keyword hit, not just the first.
+
+        `get_delete_and_remove_user` has its first keyword adjacent to the
+        read verb, but the conjunction before the second one reveals the
+        compound operation — it must still be flagged.
+        """
+        cap = self.parse_tool("get_delete_and_remove_user", "Operate on data")
+        assert cap.is_destructive is True
+
+    def test_then_and_ampersand_conjunctions(self):
+        """`then` and `&` also separate a second operation."""
+        for name in ("get_then_delete_user", "get_&_delete_user"):
+            cap = self.parse_tool(name, "Operate on data")
+            assert cap.is_destructive is True, name
+
+    def test_no_conjunction_still_suppresses(self):
+        """The adjacency rule keeps #84's read-only names suppressed."""
+        for name in ("search_update_records", "get_clear_status", "get_address"):
+            cap = self.parse_tool(name, "Return records")
+            assert cap.is_destructive is False, name
+            assert cap.is_write is False, name
+
+    def test_description_third_person_inflections(self):
+        """Present-tense descriptions are the common register (#88 review)."""
+        cap = self.parse_tool("fetch_records", "Deletes all records")
+        assert cap.is_destructive is True
+
+        cap = self.parse_tool("fetch_records", "Updates the user settings and clears cache")
+        assert cap.is_write is True
+        assert cap.is_destructive is True
+
+        cap = self.parse_tool("fetch_records", "Removes stale entries")
+        assert cap.is_destructive is True
+
+        cap = self.parse_tool("fetch_records", "Writes output to disk")
+        assert cap.is_write is True
+
+    def test_description_e_dropping_gerunds(self):
+        """-ing forms of e-final verbs: deleting, updating, writing, removing."""
+        cap = self.parse_tool("fetch_records", "Deleting all records first")
+        assert cap.is_destructive is True
+
+        cap = self.parse_tool("fetch_records", "Updating the configuration")
+        assert cap.is_write is True
+
+        cap = self.parse_tool("fetch_records", "Writing to disk")
+        assert cap.is_write is True
+
+        cap = self.parse_tool("fetch_records", "Removing stale entries")
+        assert cap.is_destructive is True
+
+    def test_description_regular_past_and_gerund(self):
+        """Consonant-final verbs: cleared/posted/inserted and posting/inserting."""
+        cap = self.parse_tool("fetch_records", "Clears the cache before returning")
+        assert cap.is_destructive is True
+
+        cap = self.parse_tool("fetch_records", "Cleared the cache before returning")
+        assert cap.is_destructive is True
+
+        cap = self.parse_tool("fetch_records", "Posting the result")
+        assert cap.is_write is True
+
+        cap = self.parse_tool("fetch_records", "Inserted the row")
+        assert cap.is_write is True
+
+    def test_description_cvc_doubling(self):
+        """CVC verbs double their final consonant: dropping, putting, dropped."""
+        cap = self.parse_tool("fetch_records", "Dropping all collections")
+        assert cap.is_destructive is True
+
+        cap = self.parse_tool("fetch_records", "Dropped the table")
+        assert cap.is_destructive is True
+
+        cap = self.parse_tool("fetch_records", "Putting the file in the bucket")
+        assert cap.is_write is True
+
+    def test_description_y_conjugation(self):
+        """Consonant+y keywords: modifies/modified still match `modify`."""
+        cap = self.parse_tool("fetch_records", "Modifies user records")
+        assert cap.is_write is True
+
+        cap = self.parse_tool("fetch_records", "Modified the configuration")
+        assert cap.is_write is True
+
+    def test_description_nouns_stay_unflagged(self):
+        """The #84 noun protections survive the inflection patterns."""
+        cap = self.parse_tool("list_records", "Checks the created date")
+        assert cap.is_write is False
+
+        cap = self.parse_tool("read_config", "Manage the settings for this server")
+        assert cap.is_write is False
+
+        cap = self.parse_tool("read_config", "Returns the current setting")
+        assert cap.is_write is False
+
+        cap = self.parse_tool("query_status", "Read the input and report")
+        assert cap.is_write is False
+
+
 class TestRules:
     """Test security rules."""
 

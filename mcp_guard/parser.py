@@ -3,10 +3,96 @@
 from __future__ import annotations
 
 import json
+import re
+from functools import cache
 from pathlib import Path
 from typing import Any, cast
 
 from .models import MCPCapability, MCPCapabilityType, MCPManifest
+
+# Leading verbs that mark a capability as read-only regardless of the rest of
+# its identifier: MCP tool names conventionally lead with the operation verb,
+# so `get_clear_status` ("get the clear-status") and `search_update_records`
+# ("search the update-records") are reads even though `clear`/`update` appear
+# as identifier segments (#84).
+_READ_VERBS = frozenset(
+    {
+        "check",
+        "describe",
+        "fetch",
+        "find",
+        "get",
+        "has",
+        "inspect",
+        "is",
+        "list",
+        "lookup",
+        "query",
+        "read",
+        "retrieve",
+        "search",
+        "select",
+        "show",
+        "view",
+    }
+)
+
+# camelCase boundary: lower/digit followed by upper (same split the
+# prompt-injection module applies to identifiers).
+_CAMEL_SPLIT = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
+_IDENTIFIER_SEPARATORS = re.compile(r"[\s_\-.]+")
+
+# A conjunction between a leading read verb and a write/destructive keyword
+# marks a second operation (`get_and_delete_user`, `fetch_or_drop_table`),
+# so the read-verb suppression must not apply. `&` appears as its own token
+# after separator splitting (`get_&_delete` -> ["get", "&", "delete"]).
+_CONJUNCTIONS = frozenset({"and", "or", "then", "&"})
+
+# Verb inflections matched after a description keyword: third person
+# ("Deletes all records"), regular past ("cleared the cache") and gerund
+# ("posting the result"). E-final verbs form the past with a bare "d"
+# ("deleted") which is deliberately NOT matched — the same suffix would
+# flag adjectival participles like "the created date" (#84's false
+# positive), so only forms unambiguous with the lemma are included.
+_DESCRIPTION_SUFFIX = r"(?:e?s|ed|ing)?"
+
+
+@cache
+def _description_pattern(keyword: str) -> re.Pattern[str]:
+    """Compile a description-matching pattern for one keyword.
+
+    Covers the inflected forms the bare lemma misses: `deletes` (third
+    person), `cleared` (regular past), `posting` (gerund) and the
+    e-dropping gerund of verbs ending in `e` (`writing`, `updating`).
+    Consonant-vowel-consonant keywords double their final consonant
+    (`dropping`, `putting`) and consonant+y keywords conjugate their `y`
+    (`modifies`, `modified`). Common-noun collisions are avoided: the
+    doubling rule skips `set`, whose gerund (`setting`/`settings`) is the
+    noun #84 protects.
+    """
+
+    stem = re.escape(keyword)
+    alternatives = [f"{stem}{_DESCRIPTION_SUFFIX}"]
+
+    if keyword.endswith("e"):
+        # e-dropping gerund: write -> writing, update -> updating
+        alternatives.append(f"{re.escape(keyword[:-1])}ing")
+
+    if (
+        len(keyword) >= 3
+        and keyword[-1] not in "aeiouwxy"
+        and keyword[-2] in "aeiou"
+        and keyword[-3] not in "aeiou"
+        and keyword != "set"
+    ):
+        # CVC doubling: drop -> dropping/dropped, put -> putting
+        alternatives.append(f"{stem}{keyword[-1]}(?:ing|ed)")
+
+    if len(keyword) >= 2 and keyword[-1] == "y" and keyword[-2] not in "aeiou":
+        # consonant+y: modify -> modifies/modified
+        alternatives.append(f"{re.escape(keyword[:-1])}(?:ies|ied)")
+
+    return re.compile(rf"\b(?:{'|'.join(alternatives)})\b")
 
 
 class MCPParser:
@@ -159,10 +245,44 @@ class MCPParser:
                     return True
         return False
 
+    @staticmethod
+    def _name_tokens(name: str) -> list[str]:
+        """Tokenize an identifier (snake_case, kebab-case, camelCase) into words."""
+        spaced = _CAMEL_SPLIT.sub(" ", name)
+        return [token for token in _IDENTIFIER_SEPARATORS.split(spaced.lower()) if token]
+
+    @classmethod
+    def _keyword_hit(cls, keywords: list[str], name: str, desc: str) -> bool:
+        """Match a keyword list against an identifier and its description.
+
+        Names are tokenized so a keyword only matches a whole identifier
+        segment: `delete_repo` still matches `delete`, but `get_address` no
+        longer matches `add` inside "address" (#84). A leading read-only
+        verb suppresses name matching while the keyword directly follows
+        it (`search_update_records` is a read); a conjunction in between
+        marks a second operation, so `get_and_delete_user` still matches.
+        The conjunction check runs for every keyword hit, not just the
+        first — `get_delete_and_remove_user` keeps matching too.
+
+        Descriptions are matched on word boundaries with verb
+        inflections, so `Deletes`, `cleared` and `updating` are caught
+        while `created`, `settings` and `input` still do not trip
+        `create`, `set` or `put`.
+        """
+        tokens = cls._name_tokens(name)
+        hits = [i for i, token in enumerate(tokens) if token in keywords]
+        conjunction_before_hit = any(token in _CONJUNCTIONS for i in hits for token in tokens[1:i])
+        name_match = bool(hits) and not (
+            tokens and tokens[0] in _READ_VERBS and not conjunction_before_hit
+        )
+        if name_match:
+            return True
+        return any(_description_pattern(keyword).search(desc) for keyword in keywords)
+
     @classmethod
     def _detect_destructive(cls, data: dict[str, Any]) -> bool:
         """Detect if capability performs destructive operations."""
-        name = data.get("name", "").lower()
+        name = data.get("name", "")
         desc = data.get("description", "").lower()
 
         destructive_keywords = [
@@ -178,12 +298,12 @@ class MCPParser:
             "terminate",
         ]
 
-        return any(keyword in name or keyword in desc for keyword in destructive_keywords)
+        return cls._keyword_hit(destructive_keywords, name, desc)
 
     @classmethod
     def _detect_write(cls, data: dict[str, Any]) -> bool:
         """Detect if capability performs write operations."""
-        name = data.get("name", "").lower()
+        name = data.get("name", "")
         desc = data.get("description", "").lower()
 
         write_keywords = [
@@ -201,4 +321,4 @@ class MCPParser:
             "send",
         ]
 
-        return any(keyword in name or keyword in desc for keyword in write_keywords)
+        return cls._keyword_hit(write_keywords, name, desc)
