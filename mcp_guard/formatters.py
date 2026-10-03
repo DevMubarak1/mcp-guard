@@ -31,6 +31,7 @@ def to_dict(result: ScanResult) -> dict[str, Any]:
                 "capability": f.capability_name,
                 "type": f.capability_type.value if f.capability_type else None,
                 "suggestion": f.suggestion,
+                "properties": f.properties,
             }
             for f in result.findings
         ],
@@ -82,6 +83,7 @@ def to_sarif(result: ScanResult) -> dict[str, Any]:
                 ],
                 "properties": {
                     "auth_status": auth_status,
+                    **finding.properties,
                 },
             }
         )
