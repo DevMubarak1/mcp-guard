@@ -104,13 +104,13 @@ def scan(
     try:
         manifest = MCPParser.from_file(path)
     except FileNotFoundError as e:
-        console.print(f"[red]Error: {escape(str(e))}[/red]")
+        console.print(f"[red]Error: {escape(str(e))}[/red]", soft_wrap=True)
         sys.exit(1)
     except ValueError as e:
         # MCPParser wraps JSON decode and read errors in ValueError.
         # Escaped: a validation error quotes the offending input verbatim, so an
         # attacker-controlled manifest can carry Rich markup into the message.
-        console.print(f"[red]Error: {escape(str(e))}[/red]")
+        console.print(f"[red]Error: {escape(str(e))}[/red]", soft_wrap=True)
         sys.exit(1)
 
     # Resolve deny policy from config file or CLI options
@@ -119,7 +119,7 @@ def scan(
         try:
             deny_policy = DenyPolicy.from_yaml(config_path)
         except Exception as e:
-            console.print(f"[red]Error loading config file: {escape(str(e))}[/red]")
+            console.print(f"[red]Error loading config file: {escape(str(e))}[/red]", soft_wrap=True)
             sys.exit(1)
     else:
         path_obj = Path(path)
@@ -134,8 +134,12 @@ def scan(
                         # Found but unreadable: a security control that fails
                         # open is worse than one that fails, so this is fatal
                         # exactly as it already is via --config (#83).
+                        # soft_wrap: Rich word-wraps at the console width, which
+                        # can split the filename across a line break and leave the
+                        # user with a path that does not exist.
                         console.print(
-                            f"[red]Error loading policy file {candidate}: {escape(str(e))}[/red]"
+                            f"[red]Error loading policy file {candidate}: {escape(str(e))}[/red]",
+                            soft_wrap=True,
                         )
                         sys.exit(1)
                     break
@@ -153,7 +157,7 @@ def scan(
         try:
             strict_rule = PromptInjectionRule(strict=True)
         except InjectionEngineUnavailableError as e:
-            console.print(f"[red]Error: {escape(str(e))}[/red]")
+            console.print(f"[red]Error: {escape(str(e))}[/red]", soft_wrap=True)
             sys.exit(1)
         rules = [strict_rule if isinstance(r, PromptInjectionRule) else r for r in ALL_RULES]
 
@@ -206,11 +210,11 @@ def info(path: str) -> None:
     try:
         manifest = MCPParser.from_file(path)
     except FileNotFoundError as e:
-        console.print(f"[red]Error: {escape(str(e))}[/red]")
+        console.print(f"[red]Error: {escape(str(e))}[/red]", soft_wrap=True)
         sys.exit(1)
     except ValueError as e:
         # Escaped: see scan() above - validation errors quote the input verbatim.
-        console.print(f"[red]Error: {escape(str(e))}[/red]")
+        console.print(f"[red]Error: {escape(str(e))}[/red]", soft_wrap=True)
         sys.exit(1)
 
     console.print(f"[bold]Server:[/bold] {escape(manifest.name)} v{escape(manifest.version)}")
@@ -270,7 +274,7 @@ def verify(package_ref: str, policy: str, output_format: str) -> None:
     except ValueError as e:
         # InvalidPackageRef subclasses ValueError; invalid refs quote the
         # offending input verbatim, hence the escape.
-        console.print(f"[red]Error: {escape(str(e))}[/red]")
+        console.print(f"[red]Error: {escape(str(e))}[/red]", soft_wrap=True)
         sys.exit(1)
 
     if output_format == "json":

@@ -121,8 +121,9 @@ class TestAutoDiscoveredPolicyIsNotSwallowed:
         malformed = "deny:\n  servers:\n    - evil-server\n  tools: [\n"
         exit_code, output = self._scan(tmp_path, malformed)
         assert exit_code == 1
-        # Rich hard-wraps at the console width, so match on unwrapped output.
-        assert "mcp-guard.yaml" in "".join(output.split())
+        # The CLI must not word-wrap the path, or the filename is split across
+        # a line break and the reported file does not exist.
+        assert "mcp-guard.yaml" in output
 
     def test_valid_discovered_policy_still_denies(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
