@@ -139,8 +139,9 @@ class TestScanConfigAutoDiscovery:
         result = CliRunner().invoke(main, ["scan", str(manifest), "--format", "json"])
 
         assert result.exit_code == 1
-        # Rich hard-wraps at the console width, so match on unwrapped output.
-        assert "mcp-guard.yaml" in "".join(result.output.split())
+        # The CLI must not word-wrap the path, or the filename is split across
+        # a line break and the reported file does not exist.
+        assert "mcp-guard.yaml" in result.output
 
     def test_explicit_config_overrides_autodiscovery(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
