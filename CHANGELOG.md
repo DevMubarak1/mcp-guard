@@ -2,7 +2,15 @@
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-05
+
 ### Fixed
+- A scalar `servers:`/`tools:` in the deny policy is no longer iterated per
+  character: `servers: acme-notes` became `['a', 'c', 'm', 'e', '-', 'n', 'o',
+  't', 'e', 's']`, so the rule matched nothing and the scan exited 0, while
+  `servers: acme-*` left a bare `*` that denied every server; a non-mapping
+  policy document now raises a clean error instead of a raw `AttributeError`
+  (#96)
 - `auth` given as an object is no longer read as authenticated because the
   object is truthy: `{"required": false}`, `{"enabled": false}`,
   `{"type": "none"}` and OpenAPI `"security": [{"none": []}]` now resolve to the
