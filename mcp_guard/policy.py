@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import fnmatch
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
 from pydantic import BaseModel, Field
 
 from .models import MCPManifest, RiskFinding, RiskLevel
+from .parser import as_permission_list
 
 
 class DenyPolicy(BaseModel):
@@ -32,13 +33,25 @@ class DenyPolicy(BaseModel):
         else:
             content = source
 
-        parsed: dict[str, Any] = yaml.safe_load(content) or {}
-        deny_block: dict[str, Any] = parsed.get("deny", parsed)
+        parsed: object = yaml.safe_load(content) or {}
+        deny_block: object = parsed
+        if isinstance(parsed, dict):
+            deny_block = cast("dict[str, Any]", parsed).get("deny", parsed)
+        if not isinstance(deny_block, dict):
+            # A bare list/scalar document, or a scalar `deny:` value, is not a
+            # mapping; calling .get on it raised a raw AttributeError instead of
+            # a clean config error.
+            raise ValueError(
+                f"Policy must be a YAML mapping with an optional 'deny' block, "
+                f"got {type(deny_block).__name__}"
+            )
+        block: dict[str, Any] = cast("dict[str, Any]", deny_block)
 
-        raw_servers: list[Any] = deny_block.get("servers") or []
-        raw_tools: list[Any] = deny_block.get("tools") or []
-        servers = [str(s) for s in raw_servers]
-        tools = [str(t) for t in raw_tools]
+        # A scalar `servers:`/`tools:` is valid YAML; list-comprehending it
+        # iterated it per character, so the rule matched nothing and a wildcard
+        # policy left a bare '*' that denied every server (#96).
+        servers = as_permission_list(block.get("servers"))
+        tools = as_permission_list(block.get("tools"))
 
         return cls(servers=servers, tools=tools)
 

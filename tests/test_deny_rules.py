@@ -58,6 +58,31 @@ class TestDenyPolicy:
         assert policy.servers == ["blocked-server"]
         assert policy.tools == ["dangerous_tool"]
 
+    def test_from_yaml_scalar_is_one_entry_not_one_per_character(self):
+        # A bare scalar is valid YAML; it used to be iterated per character, so
+        # the deny rule matched nothing and the scan exited 0 (#96).
+        policy = DenyPolicy.from_yaml("deny:\n  servers: acme-notes\n  tools: delete_repo\n")
+        assert policy.servers == ["acme-notes"]
+        assert policy.tools == ["delete_repo"]
+        assert policy.is_server_denied("acme-notes") == (True, "acme-notes")
+
+    def test_from_yaml_scalar_wildcard_does_not_deny_every_server(self):
+        # `acme-*` used to leave a bare '*' in the list, denying every server.
+        policy = DenyPolicy.from_yaml("deny:\n  servers: acme-*\n")
+        assert policy.servers == ["acme-*"]
+        assert policy.is_server_denied("acme-notes") == (True, "acme-*")
+        assert policy.is_server_denied("totally-other-vendor") == (False, None)
+
+    @pytest.mark.parametrize(
+        "content",
+        ["- acme-notes\n- evil\n", "acme-notes\n", "deny: acme-notes\n", "deny:\n  - evil\n"],
+    )
+    def test_from_yaml_non_mapping_document_raises_value_error(self, content: str):
+        # yaml.safe_load hands back a list/str here; .get on it raised a raw
+        # AttributeError out of from_yaml instead of a clean config error.
+        with pytest.raises(ValueError):
+            DenyPolicy.from_yaml(content)
+
     def test_server_matching_exact_and_wildcard(self):
         policy = DenyPolicy(
             servers=["evil-server", "untrusted-*", "*-legacy"],
