@@ -180,6 +180,24 @@ class TestDescriptionReadVerbGate:
         cap = parse_tool(name="delete_files", description="Show how to delete files")
         assert cap.is_destructive is True
 
+    def test_later_clause_operation_is_not_dropped(self):
+        """#95: a read lead in the first sentence does not gate a later one."""
+        cases = [
+            ("maintenance", "Get the current token. Drop the table when done.", "destructive"),
+            ("settings_tool", "Show settings; clear the cache when full.", "destructive"),
+            ("record_admin", "Get the record. Update its owner.", "write"),
+        ]
+        for name, description, signal in cases:
+            cap = parse_tool(name=name, description=description)
+            assert getattr(cap, f"is_{signal}") is True, description
+
+        read_only = parse_tool(
+            name="get_command_history", description="Return the command history."
+        )
+        assert read_only.is_destructive is False
+        assert read_only.is_write is False
+        assert read_only.is_command_execution is False
+
     def test_rules_see_the_ungated_capability(self):
         """End to end: a read-only description leaves no HIGH finding behind."""
         manifest = MCPParser.from_dict(

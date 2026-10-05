@@ -50,6 +50,11 @@ _IDENTIFIER_SEPARATORS = re.compile(r"[\s_\-.]+")
 # after separator splitting (`get_&_delete` -> ["get", "&", "delete"]).
 _CONJUNCTIONS = frozenset({"and", "or", "then", "&"})
 
+# A clause boundary ends the leading read-verb phrase: a keyword starting a
+# new sentence is a verb acting, not a noun the read verb applies to ("Get the
+# current token. Drop the table when done") (#95).
+_CLAUSE_BOUNDARY = re.compile(r"[.;:!?\n]+")
+
 # Verb inflections matched after a description keyword: third person
 # ("Deletes all records"), regular past ("cleared the cache") and gerund
 # ("posting the result"). E-final verbs form the past with a bare "d"
@@ -337,8 +342,15 @@ class MCPParser:
         the noun "command" (#91). A description leading with a read verb is
         suppressed unless a conjunction reveals a second operation ("Read the
         record and delete it"), mirroring the name-path rule.
+
+        The gate holds for the LAST keyword occurrence, read inside its own
+        clause: judging the first occurrence against everything before it
+        dropped a later operation entirely, since the first hit's read lead
+        swallowed the sentence break ("Get the current token. Drop the table
+        when done", #95). Taking the last hit is the same as requiring every
+        hit to pass, and a clause that opens on the keyword is acting.
         """
-        first_hit = min(
+        last_hit = max(
             (
                 match.start()
                 for keyword in keywords
@@ -346,9 +358,10 @@ class MCPParser:
             ),
             default=-1,
         )
-        if first_hit < 0:
+        if last_hit < 0:
             return False
-        lead = [token for token in _IDENTIFIER_SEPARATORS.split(desc[:first_hit]) if token]
+        clause = _CLAUSE_BOUNDARY.split(desc[:last_hit])[-1]
+        lead = [token for token in _IDENTIFIER_SEPARATORS.split(clause) if token]
         return bool(lead) and lead[0] in _READ_VERBS and not any(
             token in _CONJUNCTIONS for token in lead[1:]
         )

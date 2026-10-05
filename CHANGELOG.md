@@ -16,6 +16,13 @@
   longer flag as command execution (nor `get_updates` as a write) purely for
   mentioning the noun, while descriptions that act ("Deletes all records",
   "Read the record and delete it") still match (#91)
+- A read verb in the first sentence no longer gates a destructive or write
+  operation in a later one: "Get the current token. Drop the table when done",
+  "Show settings; clear the cache when full" and "Get the record. Update its
+  owner" were silently unflagged because the gate only read the text before
+  the first keyword hit, so a read-only prefix swallowed a later sentence
+  entirely; read-only descriptions such as "Return the command history" stay
+  unflagged (#95)
 - `scan --fail-on low` no longer exits 1 on a zero-findings scan: an empty
   result now reads as below every threshold, so the lowest gate works as a
   "fail on anything at all" CI tripwire (#82)
