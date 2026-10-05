@@ -3,6 +3,13 @@
 ## [Unreleased]
 
 ### Fixed
+- `auth` given as an object is no longer read as authenticated because the
+  object is truthy: `{"required": false}`, `{"enabled": false}`,
+  `{"type": "none"}` and OpenAPI `"security": [{"none": []}]` now resolve to the
+  same "disabled" state as the scalar `"auth": false`, so MCP002 (and MCP001,
+  MCP007, MCP009) stop silently skipping an unauthenticated destructive tool
+  that declares it in object form. Both detectors read one shared tri-state, so
+  a genuinely authenticated tool stays unflagged (#94)
 - A malformed auto-discovered `mcp-guard.yaml`/`mcp-guard.yml` is now a hard
   error (exit 1) instead of being silently skipped: the scan used to run with
   an empty deny policy, so a server the policy named passed as clean and

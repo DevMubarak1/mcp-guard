@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Any
+
+import pytest
+
 from mcp_guard.formatters import to_dict, to_sarif
 from mcp_guard.models import MCPCapability, MCPCapabilityType, RiskLevel
 from mcp_guard.parser import MCPParser
@@ -9,6 +13,23 @@ from mcp_guard.rules import (
     ExplicitlyDisabledAuthRule,
 )
 from mcp_guard.scanner import Scanner
+
+
+def _resolve(data: dict[str, Any]) -> str:
+    """Read the tri-state normalizer, or derive it from the two callers.
+
+    The fallback keeps these tests discriminating on behaviour rather than on
+    the existence of `_resolve_auth`, so a regression is a failed assertion
+    and not an AttributeError.
+    """
+    normalize = getattr(MCPParser, "_resolve_auth", None)
+    if normalize is not None:
+        return str(normalize(data))
+    if MCPParser._detect_auth(data):
+        return "enabled"
+    if MCPParser._detect_auth_disabled(data):
+        return "disabled"
+    return "unknown"
 
 
 class TestDetectAuth:
@@ -65,6 +86,114 @@ class TestDetectAuth:
         assert MCPParser._detect_auth({"security": [{"apiKey": []}]}) is True
         assert MCPParser._detect_auth({"security": []}) is False
         assert MCPParser._detect_auth({"security": None}) is False
+
+
+class TestObjectShapedAuthDisabling:
+    """#94: `auth` as an object is never falsy, so its disabling body was ignored.
+
+    A tool declaring no authentication inside `{"required": false}` (or any
+    other disabling shape) must resolve to the same tri-state as the scalar
+    form, so MCP002/MCP001/MCP007/MCP009 stop silently skipping it.
+    """
+
+    @pytest.mark.parametrize(
+        "field",
+        [
+            {"auth": {"required": False}},
+            {"auth": {"required": "false"}},
+            {"auth": {"enabled": False}},
+            {"auth": {"enabled": "off"}},
+            {"auth": {"type": "none"}},
+            {"auth": {"type": "NONE", "scopes": []}},
+            {"authorization": {"required": False}},
+            {"security": [{"none": []}]},
+        ],
+    )
+    def test_disabling_shapes_resolve_disabled(self, field):
+        assert _resolve(field) == "disabled"
+        assert MCPParser._detect_auth(field) is False
+        assert MCPParser._detect_auth_disabled(field) is True
+
+    @pytest.mark.parametrize(
+        "field",
+        [
+            {"auth": {"required": True}},
+            {"auth": {"enabled": True, "type": "apiKey"}},
+            {"auth": {"type": "oauth2", "scopes": ["read"]}},
+            {"auth": {"type": "bearer"}},
+        ],
+    )
+    def test_enabled_shapes_stay_enabled(self, field):
+        """Negative control: a genuinely authenticated tool stays authenticated."""
+        assert _resolve(field) == "enabled"
+        assert MCPParser._detect_auth(field) is True
+        assert MCPParser._detect_auth_disabled(field) is False
+
+    def test_empty_object_stays_unknown(self):
+        """An empty object says nothing; it must not become an explicit disable."""
+        assert _resolve({"auth": {}}) == "unknown"
+        assert MCPParser._detect_auth({"auth": {}}) is False
+        assert MCPParser._detect_auth_disabled({"auth": {}}) is False
+
+    def test_destructive_object_auth_triggers_rules(self):
+        """The issue's manifest: MCP002 and MCP007 must both be reported."""
+        manifest = MCPParser.from_dict(
+            {
+                "name": "demo",
+                "version": "1.0.0",
+                "tools": [
+                    {
+                        "name": "delete_all_records",
+                        "description": "Delete every record from the datastore.",
+                        "auth": {"required": False},
+                    }
+                ],
+                "resources": [],
+                "prompts": [],
+            }
+        )
+        cap = manifest.capabilities[0]
+        assert cap.has_auth is False
+        assert cap.auth_disabled is True
+        assert cap.auth_status == "disabled"
+
+        result = Scanner().scan(manifest)
+        rule_ids = sorted(f.rule_id for f in result.findings)
+        assert "MCP002" in rule_ids
+        assert "MCP007" in rule_ids
+        assert result.risk_score == RiskLevel.CRITICAL
+
+    def test_write_and_exec_object_auth_trigger_rules(self):
+        """MCP001 and MCP009 read the same field and must see the same decision."""
+        for tool, expected in (
+            (
+                {
+                    "name": "write_config_file",
+                    "description": "Write system config",
+                    "auth": {"enabled": False},
+                },
+                "MCP001",
+            ),
+            (
+                {
+                    "name": "run_shell_command",
+                    "description": "Execute an arbitrary shell command on the host",
+                    "auth": {"type": "none"},
+                },
+                "MCP009",
+            ),
+        ):
+            manifest = MCPParser.from_dict({"name": "demo", "tools": [tool]})
+            assert manifest.capabilities[0].has_auth is False
+            rule_ids = sorted(f.rule_id for f in Scanner().scan(manifest).findings)
+            assert expected in rule_ids
+
+    def test_security_none_alongside_enabled_auth_stays_authenticated(self):
+        """`security` says nothing when auth is explicitly on; enabled wins."""
+        data = {"auth": "bearer-token", "security": [{"none": []}]}
+        assert _resolve(data) == "enabled"
+        assert MCPParser._detect_auth(data) is True
+        assert MCPParser._detect_auth_disabled(data) is False
 
 
 class TestCapabilityAuthStatus:
