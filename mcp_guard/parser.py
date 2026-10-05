@@ -128,14 +128,17 @@ def _description_pattern(keyword: str) -> re.Pattern[str]:
     return re.compile(rf"\b(?:{'|'.join(alternatives)})\b")
 
 
-def _as_permission_list(value: Any) -> list[str]:
-    """Normalize a `permissions`/`auth.scopes` value to a list of strings.
+def as_permission_list(value: Any) -> list[str]:
+    """Normalize a scalar-or-list policy value to a list of strings.
 
     YAML and JSON both allow a scalar or a list, so a manifest may declare
     `"permissions": "admin:write"` or the space/comma-separated scope form
-    `"repo:read repo:write"` (#85). `list.extend()` on a bare string iterates
-    it per character, inflating the count `ExcessivePermissionsRule` compares
-    against `MAX_PERMISSIONS`, and a non-iterable raised a bare TypeError.
+    `"repo:read repo:write"` (#85), and a deny policy may declare
+    `servers: acme-notes` or `tools: delete_repo` (#96). `list.extend()` on a
+    bare string iterates it per character, inflating the count
+    `ExcessivePermissionsRule` compares against `MAX_PERMISSIONS` and leaving
+    a bare '*' in a deny list that then matches every server, while a
+    non-iterable raised a bare TypeError.
     """
     if value is None:
         return []
@@ -143,7 +146,10 @@ def _as_permission_list(value: Any) -> list[str]:
         return [part for part in re.split(r"[\s,]+", value.strip()) if part]
     if isinstance(value, list | tuple):
         return [str(item) for item in cast("list[Any]", value)]
-    raise ValueError(f"Expected a list or string of permissions/scopes, got {type(value).__name__}")
+    raise ValueError(
+        f"Expected a list or string of permissions/scopes/deny entries, "
+        f"got {type(value).__name__}"
+    )
 
 
 class MCPParser:
@@ -258,13 +264,13 @@ class MCPParser:
     @classmethod
     def _extract_permissions(cls, data: dict[str, Any]) -> list[str]:
         """Extract permissions from capability data."""
-        permissions = _as_permission_list(data.get("permissions"))
+        permissions = as_permission_list(data.get("permissions"))
 
         # Check for scopes in auth config
         auth: Any = data.get("auth")
         if isinstance(auth, dict):
             auth_block = cast("dict[str, Any]", auth)
-            permissions.extend(_as_permission_list(auth_block.get("scopes")))
+            permissions.extend(as_permission_list(auth_block.get("scopes")))
 
         return permissions
 
