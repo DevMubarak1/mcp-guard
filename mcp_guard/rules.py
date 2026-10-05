@@ -276,7 +276,7 @@ class ExplicitlyDisabledAuthRule(SecurityRule):
                     level=level,
                     message=(
                         f"Capability '{capability.name}' explicitly disables "
-                        "authentication ('auth': false)"
+                        "authentication"
                     ),
                     capability_name=capability.name,
                     capability_type=capability.type,

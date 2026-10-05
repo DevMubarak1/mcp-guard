@@ -55,6 +55,11 @@ _CONJUNCTIONS = frozenset({"and", "or", "then", "&"})
 # current token. Drop the table when done") (#95).
 _CLAUSE_BOUNDARY = re.compile(r"[.;:!?\n]+")
 
+# Spellings that declare authentication OFF, wherever the field carries them:
+# as a scalar (`false`), as a string (`"off"`), or inside an object
+# (`{"required": false}`, `{"type": "none"}`) (#94).
+_DISABLED_AUTH_VALUES = frozenset({"false", "disabled", "none", "off"})
+
 # Verb inflections matched after a description keyword: third person
 # ("Deletes all records"), regular past ("cleared the cache") and gerund
 # ("posting the result"). E-final verbs form the past with a bare "d"
@@ -275,32 +280,82 @@ class MCPParser:
         return permissions
 
     @classmethod
+    def _resolve_auth(cls, data: dict[str, Any]) -> str:
+        """Resolve the declared auth state of a capability to one tri-state.
+
+        Returns "enabled", "disabled" or "unknown" by reading every shape the
+        field can take: a disabling scalar (`False`), a disabling string, an
+        object whose body says so (`{"required": false}`, `{"enabled": false}`,
+        `{"type": "none"}`) and an OpenAPI `security` list with no scheme
+        (`[{"none": []}]`) (#94). An empty object, an absent field and a
+        value that says nothing are "unknown". When two keys disagree, an
+        explicit "enabled" wins, so a genuinely authenticated capability is
+        never reported as unauthenticated.
+        """
+        state = "unknown"
+        for key in ("auth", "authorization"):
+            if key not in data:
+                continue
+            value_state = cls._auth_value_state(data[key])
+            if value_state == "enabled":
+                return "enabled"
+            if value_state == "disabled":
+                state = "disabled"
+        # OpenAPI-style: `security: [{"none": []}]` allows anonymous access,
+        # any listed scheme means auth is required.
+        security = cast("list[Any]", data.get("security") or [])
+        if security:
+            # A non-mapping entry is a scheme name this tool does not model:
+            # unknown, so it must not be read as an explicit "no auth".
+            return (
+                "disabled"
+                if all(
+                    isinstance(e, dict) and set(cast("dict[str, Any]", e)) <= {"none"}
+                    for e in security
+                )
+                else "enabled"
+            )
+        return state
+
+    @classmethod
+    def _auth_value_state(cls, value: Any) -> str:
+        """Classify one auth/authorization value as "enabled"/"disabled"/"unknown"."""
+        if value is False:
+            return "disabled"
+        if isinstance(value, str):
+            token = value.strip().lower()
+            if token in _DISABLED_AUTH_VALUES:
+                return "disabled"
+            return "enabled" if token else "unknown"
+        if isinstance(value, dict):
+            block = cast("dict[str, Any]", value)
+            if not block:
+                return "unknown"
+            # An explicit flag wins over the rest of the body, so
+            # `{"required": "false"}` is honoured like `{"required": false}`.
+            for key in ("required", "enabled"):
+                if key in block and cls._auth_value_state(block[key]) == "disabled":
+                    return "disabled"
+            auth_type = block.get("type")
+            if isinstance(auth_type, str) and auth_type.strip().lower() in _DISABLED_AUTH_VALUES:
+                return "disabled"
+            return "enabled"
+        return "enabled" if value else "unknown"
+
+    @classmethod
     def _detect_auth(cls, data: dict[str, Any]) -> bool:
         """Detect if capability has authentication configured and enabled.
 
-        Returns True only if auth, authorization, or security is present and truthy
-        (not False, None, 0, empty string, or empty collection).
+        Reads the single tri-state from ``_resolve_auth``; an object that
+        declares no authentication (`{"required": false}`) is not enabled,
+        which a truthiness test on the object could not see (#94).
         """
-        for key in ("auth", "authorization"):
-            if key in data:
-                val = data[key]
-                if val:
-                    return True
-        # Check for security in OpenAPI-style
-        return bool(data.get("security"))
+        return cls._resolve_auth(data) == "enabled"
 
     @classmethod
     def _detect_auth_disabled(cls, data: dict[str, Any]) -> bool:
         """Detect if capability explicitly disables authentication (e.g. 'auth': false)."""
-        for key in ("auth", "authorization"):
-            if key in data:
-                val = data[key]
-                if val is False or (
-                    isinstance(val, str)
-                    and val.strip().lower() in ("false", "disabled", "none", "off")
-                ):
-                    return True
-        return False
+        return cls._resolve_auth(data) == "disabled"
 
     @staticmethod
     def _name_tokens(name: str) -> list[str]:
