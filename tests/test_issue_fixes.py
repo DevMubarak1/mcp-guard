@@ -227,3 +227,40 @@ class TestDescriptionReadVerbGate:
         )
         findings = ExcessivePermissionsRule().check(manifest.capabilities[0], manifest)
         assert [f.rule_id for f in findings] == ["MCP003"]
+
+
+class TestNullDescription:
+    """#103: `description: null` must not crash with AttributeError."""
+
+    def test_server_level_null_description(self):
+        manifest = MCPParser.from_dict(
+            {"name": "srv", "description": None, "tools": []}
+        )
+        assert manifest.description == ""
+
+    def test_capability_null_description(self):
+        manifest = MCPParser.from_dict(
+            {
+                "name": "srv",
+                "tools": [{"name": "do_thing", "description": None}],
+            }
+        )
+        cap = manifest.capabilities[0]
+        assert cap.description == ""
+        assert cap.is_destructive is False
+        assert cap.is_write is False
+        assert cap.is_command_execution is False
+
+    def test_null_description_end_to_end(self):
+        manifest = MCPParser.from_dict(
+            {
+                "name": "srv",
+                "description": None,
+                "tools": [
+                    {"name": "delete_files", "description": None},
+                ],
+            }
+        )
+        result = Scanner().scan(manifest)
+        # delete_files is destructive by name, so MCP002 fires — but no crash
+        assert any(f.rule_id == "MCP002" for f in result.findings)

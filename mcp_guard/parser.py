@@ -305,7 +305,7 @@ class MCPParser:
         return MCPManifest(
             name=data.get("name", "unknown"),
             version=data.get("version", "0.0.0"),
-            description=data.get("description", ""),
+            description=data.get("description") or "",
             capabilities=capabilities,
             metadata=data.get("metadata", {}),
         )
@@ -336,7 +336,7 @@ class MCPParser:
         return MCPCapability(
             name=data.get("name", "unnamed"),
             type=cap_type,
-            description=data.get("description", ""),
+            description=data.get("description") or "",
             input_schema=data.get("inputSchema", data.get("input_schema", {})),
             permissions=permissions,
             has_auth=has_auth,
@@ -518,7 +518,7 @@ class MCPParser:
     def _detect_destructive(cls, data: dict[str, Any]) -> bool:
         """Detect if capability performs destructive operations."""
         name = data.get("name", "")
-        desc = data.get("description", "").lower()
+        desc = (data.get("description") or "").lower()
 
         destructive_keywords = [
             "delete",
@@ -539,7 +539,7 @@ class MCPParser:
     def _detect_write(cls, data: dict[str, Any]) -> bool:
         """Detect if capability performs write operations."""
         name = data.get("name", "")
-        desc = data.get("description", "").lower()
+        desc = (data.get("description") or "").lower()
 
         write_keywords = [
             "create",
@@ -567,6 +567,6 @@ class MCPParser:
         the write and destructive dimensions.
         """
         name = data.get("name", "")
-        desc = data.get("description", "").lower()
+        desc = (data.get("description") or "").lower()
 
         return cls._keyword_hit(_COMMAND_EXECUTION_KEYWORDS, name, desc)
