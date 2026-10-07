@@ -291,16 +291,31 @@ class MCPParser:
         capabilities: list[MCPCapability] = []
 
         # Parse tools
-        for tool in data.get("tools") or []:
-            capabilities.append(cls._parse_capability(tool, MCPCapabilityType.TOOL))
+        tools = cast("list[Any]", data.get("tools") or [])
+        for tool in tools:
+            if not isinstance(tool, dict):
+                continue
+            capabilities.append(
+                cls._parse_capability(cast("dict[str, Any]", tool), MCPCapabilityType.TOOL)
+            )
 
         # Parse resources
-        for resource in data.get("resources") or []:
-            capabilities.append(cls._parse_capability(resource, MCPCapabilityType.RESOURCE))
+        resources = cast("list[Any]", data.get("resources") or [])
+        for resource in resources:
+            if not isinstance(resource, dict):
+                continue
+            capabilities.append(
+                cls._parse_capability(cast("dict[str, Any]", resource), MCPCapabilityType.RESOURCE)
+            )
 
         # Parse prompts
-        for prompt in data.get("prompts") or []:
-            capabilities.append(cls._parse_capability(prompt, MCPCapabilityType.PROMPT))
+        prompts = cast("list[Any]", data.get("prompts") or [])
+        for prompt in prompts:
+            if not isinstance(prompt, dict):
+                continue
+            capabilities.append(
+                cls._parse_capability(cast("dict[str, Any]", prompt), MCPCapabilityType.PROMPT)
+            )
 
         return MCPManifest(
             name=data.get("name") or "unknown",
