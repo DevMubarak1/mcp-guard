@@ -229,7 +229,7 @@ def as_permission_list(value: Any) -> list[str]:
         return []
     if isinstance(value, str):
         return [part for part in re.split(r"[\s,]+", value.strip()) if part]
-    if isinstance(value, list | tuple):
+    if isinstance(value, (list, tuple)):
         return [str(item) for item in cast("list[Any]", value)]
     raise ValueError(
         f"Expected a list or string of permissions/scopes/deny entries, "
@@ -291,23 +291,23 @@ class MCPParser:
         capabilities: list[MCPCapability] = []
 
         # Parse tools
-        for tool in data.get("tools", []):
+        for tool in data.get("tools") or []:
             capabilities.append(cls._parse_capability(tool, MCPCapabilityType.TOOL))
 
         # Parse resources
-        for resource in data.get("resources", []):
+        for resource in data.get("resources") or []:
             capabilities.append(cls._parse_capability(resource, MCPCapabilityType.RESOURCE))
 
         # Parse prompts
-        for prompt in data.get("prompts", []):
+        for prompt in data.get("prompts") or []:
             capabilities.append(cls._parse_capability(prompt, MCPCapabilityType.PROMPT))
 
         return MCPManifest(
-            name=data.get("name", "unknown"),
-            version=data.get("version", "0.0.0"),
+            name=data.get("name") or "unknown",
+            version=data.get("version") or "0.0.0",
             description=data.get("description") or "",
             capabilities=capabilities,
-            metadata=data.get("metadata", {}),
+            metadata=data.get("metadata") or {},
         )
 
     @classmethod
@@ -334,10 +334,10 @@ class MCPParser:
         is_command_execution = cls._detect_command_execution(data)
 
         return MCPCapability(
-            name=data.get("name", "unnamed"),
+            name=data.get("name") or "unnamed",
             type=cap_type,
             description=data.get("description") or "",
-            input_schema=data.get("inputSchema", data.get("input_schema", {})),
+            input_schema=data.get("inputSchema") or data.get("input_schema") or {},
             permissions=permissions,
             has_auth=has_auth,
             auth_disabled=auth_disabled,
@@ -517,7 +517,7 @@ class MCPParser:
     @classmethod
     def _detect_destructive(cls, data: dict[str, Any]) -> bool:
         """Detect if capability performs destructive operations."""
-        name = data.get("name", "")
+        name = data.get("name") or ""
         desc = (data.get("description") or "").lower()
 
         destructive_keywords = [
@@ -538,7 +538,7 @@ class MCPParser:
     @classmethod
     def _detect_write(cls, data: dict[str, Any]) -> bool:
         """Detect if capability performs write operations."""
-        name = data.get("name", "")
+        name = data.get("name") or ""
         desc = (data.get("description") or "").lower()
 
         write_keywords = [
@@ -566,7 +566,7 @@ class MCPParser:
         suppression and description inflections apply exactly as they do for
         the write and destructive dimensions.
         """
-        name = data.get("name", "")
+        name = data.get("name") or ""
         desc = (data.get("description") or "").lower()
 
         return cls._keyword_hit(_COMMAND_EXECUTION_KEYWORDS, name, desc)
